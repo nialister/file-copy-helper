@@ -1,0 +1,8 @@
+-i "test/src/t1.txt" -o "test/dst/t1.txt"
+#-i "test\src\t1.txt" -o "test\dst\t11.txt"
+-i "test/src\t1.txt" -o "test\dst\t111.txt"
+-i "test/src\t1.txt" -o "test\dst\t1111.txt"
+-i "test\src\t1.txt" -o "test\dst\t11111.txt"
+-i "test/src/t2.txt" -o "test/dst/t2/t2.txt"
+-i "test/src/t3.txt" -o "test/dst/t3/t3/t3.txt"
+-i "test/src/d1" -o "test/dst/d1" -dd
