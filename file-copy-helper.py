@@ -27,13 +27,14 @@ class Method:
 
 
 class Statistics:
-    correct_lines = 0
-    skipped_lines = 0
-    incorrect_lines = 0
-    total_lines = 0
-    succeeded_transfers = 0
-    skipped_transfers = 0
-    failed_transfers = 0
+    def __init__(self):
+        self.correct_lines = 0
+        self.skipped_lines = 0
+        self.incorrect_lines = 0
+        self.total_lines = 0
+        self.succeeded_transfers = 0
+        self.skipped_transfers = 0
+        self.failed_transfers = 0
 
 
 class ArgumentParserError(Exception): pass
@@ -218,11 +219,63 @@ def makeTransfer(src, dst, method=Method.Copy, force=False, ignorepatterns=[], o
         return Response.SourceNotExist
 
 
+# parse line
+def parseLine(line: str, lpars: ThrowingArgumentParser, lstat: Statistics):
+    # check line len is correct
+    if len(line) == 0:
+        return
+    # check comment
+    if line[0] == '#':
+        print("  Skip line: " + line[1:] + "")
+        lstat.skipped_lines += 1
+        return
+    try:
+        line_args = lpars.parse_args(line.split())
+        input_path = line_args.input.strip().strip('"')
+        output_path = line_args.output.strip().strip('"')
+        if input_path == "" or output_path == "":
+            raise Exception("Input or output is empty")
+
+        method = line_args.method
+        force = line_args.force
+        ignorepatterns = [ip.strip().strip('"') for ip in line_args.ignorepatterns]
+        onlyfiles = line_args.onlyfiles
+        deletedst = line_args.deletedst
+        keep = [k.strip().strip('"') for k in line_args.keep]
+
+        print("  Handle line: " + line[1:] + "")
+        print("    " + method.capitalize() + " \"" + input_path + "\" --> \"" + output_path + "\" ...")
+        lstat.correct_lines += 1
+        res = makeTransfer(input_path, output_path, method=method, force=force,
+                           ignorepatterns=ignorepatterns, onlyfiles=onlyfiles, deletedst=deletedst,
+                           keep=keep)
+        if res == Response.Ok:
+            lstat.succeeded_transfers += 1
+            print("    Ok")
+        elif res == Response.SourceNotExist:
+            print("    Fail: source object not exist")
+            lstat.failed_transfers += 1
+        elif res == Response.UnknownType:
+            print("    Fail: unknown type of source object ")
+            lstat.failed_transfers += 1
+        elif res == Response.UnknownMethod:
+            print("    Fail: unknown transfer method")
+            lstat.failed_transfers += 1
+        elif res == Response.Skip:
+            lstat.skipped_transfers += 1
+            print("    Skip")
+    except Exception as e:
+        print("  Cannot handle line: " + line + ", because " + str(e))
+        lstat.incorrect_lines += 1
+
+
 if __name__ == '__main__':
     try:
         print("File-copy-helper script starts")
 
         parser = ThrowingArgumentParser(description='Arg parser')
+        parser.add_argument('-l', '--lines', metavar='lines', nargs="+", default=[],
+                            help='lines to parse')
         parser.add_argument('-f', '--files', metavar='files', nargs="+", default=[],
                             help='files with lines to parse')
         parser.add_argument('-d', '--dir', metavar='dir', type=str, default="",
@@ -233,6 +286,8 @@ if __name__ == '__main__':
                             help='sleep seconds at the end of script, default: 0')
         args = parser.parse_args()
 
+        app_lines = args.lines
+        print("App lines: " + str(app_lines))
         app_files = args.files
         print("App files: " + str(app_files))
         app_dirname, app_basename = os.path.split(sys.argv[0])
@@ -264,84 +319,49 @@ if __name__ == '__main__':
         line_parser.add_argument('-k', '--keep', metavar='keep', nargs="+", default=[],
                                  help="keep objects in destination directory")
 
-        linelist_filenames = []
-        if len(app_files):
-            print("Scan separate files ...")
-            for af in app_files:
-                filename = af.strip().strip('"')
-                if not os.path.isabs(filename):
-                    filename = os.path.join(app_dir, filename)
-                if os.path.exists(filename):
-                    linelist_filenames.append(filename)
+        stat = Statistics()
+        # parse lines
+        if len(app_lines):
+            linelist = list(filter(None, (line.strip() for line in app_lines)))
+            stat.total_lines += len(linelist)
+            print("Parse " + str(len(linelist)) + " line(s) ...")
+            for line in linelist:
+                parseLine(line, line_parser, stat)
+        # handle files
         else:
-            print("Scan app directory ...")
-            if not os.path.exists(app_dir):
-                raise Exception("Incorrect directory: " + app_dir)
-            linelist_filenames = glob.glob(os.path.join(app_dir, app_filepattern))
-        print("Files to parse:")
-        for llf in linelist_filenames:
-            print(llf)
+            linelist_filenames = []
+            # handle separate files
+            if len(app_files):
+                print("Scan separate files ...")
+                for af in app_files:
+                    filename = af.strip().strip('"')
+                    if not os.path.isabs(filename):
+                        filename = os.path.join(app_dir, filename)
+                    if os.path.exists(filename):
+                        linelist_filenames.append(filename)
+            # scan directory for files with selected filepattern
+            else:
+                print("Scan app directory ...")
+                if not os.path.exists(app_dir):
+                    raise Exception("Incorrect directory: " + app_dir)
+                linelist_filenames = glob.glob(os.path.join(app_dir, app_filepattern))
+            if len(linelist_filenames) == 0:
+                print("No files to parse found")
+            else:
+                print("Found " + str(len(linelist_filenames)) + " file(s) to parse")
+                # iterate over all line files
+                for linelist_filename in linelist_filenames:
+                    # open each line file
+                    with open(linelist_filename, "r") as file:
+                        linelist = list(filter(None, (line.strip() for line in file)))
+                        stat.total_lines += len(linelist)
+                        print("Handle file: \"" + linelist_filename + "\", lines to parse: " + str(len(linelist)))
+                        # iterate over every line in file
+                        for line in linelist:
+                            parseLine(line, line_parser, stat)
 
-        stat = Statistics
-        # iterate over all line files
-        for linelist_filename in linelist_filenames:
-            # open each line file
-            with open(linelist_filename, "r") as file:
-                linelist = list(filter(None, (line.strip() for line in file)))
-                stat.total_lines += len(linelist)
-                print("Handle file: \"" + linelist_filename + "\", lines to parse: " + str(len(linelist)))
-                # iterate over every line in file
-                for line in linelist:
-                    # check line len is correct
-                    if len(line) == 0:
-                        continue
-                    # check comment
-                    if line[0] == '#':
-                        print("  Skip line: " + line[1:] + "")
-                        stat.skipped_lines += 1
-                        continue
-                    try:
-                        line_args = line_parser.parse_args(line.split())
-                        input_path = line_args.input.strip().strip('"')
-                        output_path = line_args.output.strip().strip('"')
-                        if input_path == "" or output_path == "":
-                            raise Exception("Input or output is empty")
-
-                        method = line_args.method
-                        force = line_args.force
-                        ignorepatterns = [ip.strip().strip('"') for ip in line_args.ignorepatterns]
-                        onlyfiles = line_args.onlyfiles
-                        deletedst = line_args.deletedst
-                        keep = [k.strip().strip('"') for k in line_args.keep]
-
-                        print("  Handle line: " + line[1:] + "")
-                        print("    " + method.capitalize() + " \"" + input_path + "\" --> \"" + output_path + "\" ...")
-                        stat.correct_lines += 1
-                        res = makeTransfer(input_path, output_path, method=method, force=force,
-                                           ignorepatterns=ignorepatterns, onlyfiles=onlyfiles, deletedst=deletedst,
-                                           keep=keep)
-                        if res == Response.Ok:
-                            stat.succeeded_transfers += 1
-                            print("    Ok")
-                        elif res == Response.SourceNotExist:
-                            print("    Fail: source object not exist")
-                            stat.failed_transfers += 1
-                        elif res == Response.UnknownType:
-                            print("    Fail: unknown type of source object ")
-                            stat.failed_transfers += 1
-                        elif res == Response.UnknownMethod:
-                            print("    Fail: unknown transfer method")
-                            stat.failed_transfers += 1
-                        elif res == Response.Skip:
-                            stat.skipped_transfers += 1
-                            print("    Skip")
-                    except Exception as e:
-                        print("  Cannot handle line: " + line + ", because " + str(e))
-                        stat.incorrect_lines += 1
-                        continue
-        print("Handle " + str(len(linelist_filenames)) + " files, \n  "
-              "Correct/skipped/incorrect/total lines: " + str(stat.correct_lines) + "/" +
-              str(stat.skipped_lines) + "/" + str(stat.incorrect_lines) + "/" + str(stat.total_lines) + ", \n  "
+        print("Correct/skipped/incorrect/total lines: " + str(stat.correct_lines) + "/" +
+              str(stat.skipped_lines) + "/" + str(stat.incorrect_lines) + "/" + str(stat.total_lines) + ", \n"
               "Succeeded/skipped/incorrect/total transfers: " + str(stat.succeeded_transfers) + "/" +
               str(stat.skipped_transfers) + "/" + str(stat.incorrect_lines) + "/" + str(stat.correct_lines))
         time.sleep(app_endsleep)
