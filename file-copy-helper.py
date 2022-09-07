@@ -154,7 +154,8 @@ def transferFile(src, dst, method=Method.Copy, force=False):
 
 
 # transfer a directory from src to dst
-def transferDir(src, dst, method=Method.Copy, force=False, ignorepatterns=[], onlyfiles=False, deletedst=False, keep=[]):
+def transferDir(src, dst, method=Method.Copy, force=False, ignorepatterns=[], onlyfiles=False, deletedst=False,
+                keeppatterns=[]):
     # check if dst object exists
     if os.path.exists(dst):
         # if they are the same then skip them if force is false
@@ -163,7 +164,8 @@ def transferDir(src, dst, method=Method.Copy, force=False, ignorepatterns=[], on
                 return Response.Skip
         # delete dst dir content
         if deletedst:
-            filenames = [f for f in os.listdir(dst) if f not in keep]
+            keep_names = ignoredNames(dst, keeppatterns)
+            filenames = [f for f in os.listdir(dst) if f not in keep_names]
             for filename in filenames:
                 filepath = os.path.join(dst, filename)
                 if os.path.isfile(filepath) or os.path.islink(filepath):
@@ -201,7 +203,8 @@ def transferDir(src, dst, method=Method.Copy, force=False, ignorepatterns=[], on
 
 
 # make transfer for file or directory
-def makeTransfer(src, dst, method=Method.Copy, force=False, ignorepatterns=[], onlyfiles=False, deletedst=False, keep=[]):
+def makeTransfer(src, dst, method=Method.Copy, force=False, ignorepatterns=[], onlyfiles=False, deletedst=False,
+                 keeppatterns=[]):
     # check source object existence
     if os.path.exists(src):
         # source objects is a file or a link
@@ -210,7 +213,7 @@ def makeTransfer(src, dst, method=Method.Copy, force=False, ignorepatterns=[], o
         # source object is a directory
         elif os.path.isdir(src):
             return transferDir(src, dst, method=method, force=force, ignorepatterns=ignorepatterns, onlyfiles=onlyfiles,
-                               deletedst=deletedst, keep=keep)
+                               deletedst=deletedst, keeppatterns=keeppatterns)
         # unknown type of source object
         else:
             return Response.UnknownType
@@ -241,14 +244,14 @@ def parseLine(line: str, lpars: ThrowingArgumentParser, lstat: Statistics):
         ignorepatterns = [ip.strip().strip('"') for ip in line_args.ignorepatterns]
         onlyfiles = line_args.onlyfiles
         deletedst = line_args.deletedst
-        keep = [k.strip().strip('"') for k in line_args.keep]
+        keeppatterns = [kp.strip().strip('"') for kp in line_args.keeppatterns]
 
         print("  Handle line: " + line[1:] + "")
         print("    " + method.capitalize() + " \"" + input_path + "\" --> \"" + output_path + "\" ...")
         lstat.correct_lines += 1
         res = makeTransfer(input_path, output_path, method=method, force=force,
                            ignorepatterns=ignorepatterns, onlyfiles=onlyfiles, deletedst=deletedst,
-                           keep=keep)
+                           keeppatterns=keeppatterns)
         if res == Response.Ok:
             lstat.succeeded_transfers += 1
             print("    Ok")
@@ -316,8 +319,8 @@ if __name__ == '__main__':
                                  help="transfer only files in directory")
         line_parser.add_argument('-dd', '--deletedst', action='store_true',
                                  help="delete destination content")
-        line_parser.add_argument('-k', '--keep', metavar='keep', nargs="+", default=[],
-                                 help="keep objects in destination directory")
+        line_parser.add_argument('-kp', '--keeppatterns', metavar='keeppatterns', nargs="+", default=[],
+                                 help="keep patterns for objects in destination directory if -dd is active")
 
         stat = Statistics()
         # parse lines
